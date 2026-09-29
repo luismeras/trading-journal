@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pruebas de cálculo</title>
+<style>
+  :root { --bg: #070a0f; --text: #ece4d0; --gain: #5cc493; --loss: #f0705a; }
+  body { margin: 0; padding: 24px 16px; background: var(--bg); color: var(--text); font: 14px/1.5 "IBM Plex Mono", ui-monospace, monospace; }
+  .ok { color: var(--gain); } .ko { color: var(--loss); }
+  h1 { font: 800 20px system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<h1 id="sum">Pruebas</h1>
+<pre id="out"></pre>
+<script src="js/calc.js"></script>
+<script>
+  const out = [], R = TJ.defaultRule();
+  let pass = 0, fail = 0;
+  const eq = (name, a, b) => { const ok = Math.abs(a - b) < 1e-9 || a === b; ok ? pass++ : fail++; out.push(`<span class="${ok ? 'ok' : 'ko'}">${ok ? '✓' : '✗'} ${name}</span>${ok ? '' : `  → ${a} ≠ ${b}`}`); };
+  const days = (...p) => p.map((pnl, i) => ({ date: '2026-09-' + String(i + 1).padStart(2, '0'), pnl, plan: true }));
+
+  // vacío
+  let c = TJ.calc([], R);
+  eq('vacío: balance = tamaño', c.bal, 50000);
+  eq('vacío: piso = tamaño − drawdown', c.floor, 48000);
+  eq('vacío: objetivo 6% = 3000', c.target, 3000);
+  eq('vacío: expectativa 0', c.exp, 0);
+
+  // trailing sube con el pico y se bloquea en el tamaño
+  c = TJ.calc(days(1000, 500, -300), R);
+  eq('trailing: piso = pico − dd', c.floor, 51500 - 2000);
+  eq('trailing: colchón', c.cush, 51200 - 49500);
+  c = TJ.calc(days(2500, 1000), R); // pico 53500 → 51500 pero se bloquea en 50000
+  eq('trailing: piso se bloquea en balance inicial', c.floor, 50000);
+  eq('aprobada al llegar al objetivo', c.ok, true);
+
+  // estático
+  c = TJ.calc(days(1500, 1000), Object.assign({}, R, { type: 'static' }));
+  eq('estático: piso fijo', c.floor, 48000);
+
+  // cuenta perdida
+  c = TJ.calc(days(-1000, -1000), R);
+  eq('perdida si balance ≤ piso', c.lost, true);
+
+  // estadísticas con banda BE ±50
+  c = TJ.calc(days(400, -200, 30, -100, 300), R);
+  eq('win rate ignora BE', c.wr, 2 / 4 * 100);
+  eq('profit factor', c.pf, 700 / 300);
+  eq('ganancia media', c.avgW, 350);
+  eq('pérdida media', c.avgL, 150);
+  eq('expectativa = neto / días', c.exp, 430 / 5);
+  eq('racha perdedora (BE corta la racha)', c.ms, 1);
+  c = TJ.calc(days(500, -100, -200, -300, 400), R);
+  eq('racha perdedora 3', c.ms, 3);
+  eq('max drawdown pico a valle', c.dd, 600);
+  eq('profit factor sin pérdidas = 99', TJ.calc(days(100), R).pf, 99);
+
+  // Monte Carlo
+  const good = days(...Array.from({ length: 20 }, (_, i) => i % 4 === 3 ? -200 : 400));
+  const s1 = TJ.sim(good, R, 60, 1), s2 = TJ.sim(good, R, 60, 1);
+  eq('sim determinista por semilla', s1.pass, s2.pass);
+  eq('sim probabilidades suman 100', s1.pass + s1.bust + s1.open, 100);
+  eq('sim ventaja clara con historial bueno', TJ.verdict(s1), 'clear');
+  const bad = days(...Array.from({ length: 20 }, (_, i) => i % 4 === 3 ? 200 : -400));
+  eq('sim sin ventaja con historial malo', TJ.verdict(TJ.sim(bad, R, 60, 1)), 'none');
+
+  // formato
+  eq('formato +$410', TJ.fmt.usdS(410), '+$410');
+  eq('formato −$220', TJ.fmt.usdS(-220), '−$220');
+  eq('formato $50,000', TJ.fmt.usd(50000), '$50,000');
+
+  document.getElementById('out').innerHTML = out.join('\n');
+  document.getElementById('sum').innerHTML = `Pruebas: <span class="${fail ? 'ko' : 'ok'}">${pass} ok, ${fail} fallidas</span>`;
+  document.title = fail ? 'FAIL ' + fail : 'PASS ' + pass;
+</script>
+</body>
+</html>
